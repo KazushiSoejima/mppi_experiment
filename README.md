@@ -260,10 +260,13 @@ controller = MPPI(..., use_sg_filter=True, sg_window_size=5, sg_poly_order=3)
 If you use this repo in your work, please cite this paper (https://arxiv.org/abs/2511.08019) as:
 
 ```
-@article{honda2025model,
-  title={Model Predictive Control via Probabilistic Inference: A Tutorial and Survey},
+@article{honda2026model,
+  title={Model Predictive Control via Probabilistic Inference: A tutorial and survey},
   author={Honda, Kohei},
-  journal={arXiv preprint arXiv:2511.08019},
-  year={2025}
+  journal={Annual Reviews in Control},
+  volume={61},
+  pages={101052},
+  year={2026},
+  publisher={Elsevier}
 }
 ```
