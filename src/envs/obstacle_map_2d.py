@@ -163,8 +163,38 @@ class ObstacleMap:
 
     def convert_to_torch(self) -> torch.Tensor:
         self._map_torch = torch.from_numpy(self._map).to(self._device, self._dtype)
+
+        # --- ここから新規追加: 見通し評価用の滲み出しマップを作成 ---
+        self.create_sight_map() # blur_size, sigmaで広がりを調整
+        # --- ここまで ---
+
         return self._map_torch
 
+    def create_sight_map(self, blur_size: int = 13, sigma: float = 11):
+        """
+        障害物の周囲にコストをじわっと滲み出させた見通し用マップを作成する
+        """
+        import torch.nn.functional as F
+        
+        # 2次元ガウシアンフィルタのカーネルを作成
+        kernel_range = torch.arange(blur_size, device=self._device, dtype=self._dtype) - (blur_size - 1) / 2
+        x_grid, y_grid = torch.meshgrid(kernel_range, kernel_range, indexing="ij")
+        kernel = torch.exp(-(x_grid**2 + y_grid**2) / (2 * sigma**2))
+        kernel = kernel / kernel.sum()
+        kernel = kernel.view(1, 1, blur_size, blur_size)
+        
+        # 1マスのサイズを考慮してパディングしつつ畳み込み
+        input_map = self._map_torch.view(1, 1, self._map_torch.shape[0], self._map_torch.shape[1])
+        
+        # エラー回避のため、最も安定している標準パディング (constant, 値は0) に変更します
+        padded_map = F.pad(input_map, [blur_size//2]*4, mode='constant', value=0.0)
+        blurred = F.conv2d(padded_map, kernel)
+        
+        # 0.0 〜 1.0 に正規化して保持
+        self._sight_map_torch = blurred.squeeze()
+        if self._sight_map_torch.max() > 0:
+            self._sight_map_torch = self._sight_map_torch / self._sight_map_torch.max()
+        
     def compute_cost(self, x: torch.Tensor) -> torch.Tensor:
         """
         Check collision in a batch of trajectories.
@@ -203,18 +233,71 @@ class ObstacleMap:
         ax.imshow(self._map, cmap=cmap)
 
     def render(self, ax, zorder: int = 0) -> None:
+        # """
+        # Render in continuous space.
+        # """
+        # ax.set_xlim(self.x_lim)
+        # ax.set_ylim(self.y_lim)
+        # ax.set_aspect("equal")
+
+        # # render circle obstacles
+        # for circle_obs in self.circle_obs_list:
+        #     ax.add_patch(
+        #         plt.Circle(
+        #             circle_obs.center, circle_obs.radius, color="gray", zorder=zorder
+        #         )
+        #     )
+
+        # # render rectangle obstacles
+        # for rectangle_obs in self.rectangle_obs_list:
+        #     ax.add_patch(
+        #         plt.Rectangle(
+        #             rectangle_obs.center
+        #             - np.array([rectangle_obs.width / 2, rectangle_obs.height / 2]),
+        #             rectangle_obs.width,
+        #             rectangle_obs.height,
+        #             color="gray",
+        #             zorder=zorder,
+        #         )
+        #     )
+
         """
-        Render in continuous space.
+        Render in continuous space with sight cost heatmap.
         """
         ax.set_xlim(self.x_lim)
         ax.set_ylim(self.y_lim)
         ax.set_aspect("equal")
 
+        # ==========================================================
+        # 新設: 見通しコストマップ（ヒートマップ）の背景描画
+        # ==========================================================
+        if hasattr(self, '_sight_map_torch') and self._sight_map_torch is not None:
+            # PyTorchテンソルをNumPy配列に変換 (CPUへ移動し、上下反転させて座標系を合わせる)
+            sight_img = self._sight_map_torch.cpu().numpy().T
+            
+            # マップの描画範囲を設定 [xmin, xmax, ymin, ymax]
+            extent = [self.x_lim[0], self.x_lim[1], self.y_lim[0], self.y_lim[1]]
+            
+            # 障害物そのものの場所（値が1.0）は、見通しコストの計算から除外するか、
+            # あるいは非常に高いので、描画時に少し透過させて見やすくします
+            # cmap="Reds" でコストが高い場所を「赤色」のグラデーションで表現します
+            ax.imshow(
+                sight_img, 
+                extent=extent, 
+                origin='lower', 
+                cmap='Reds', 
+                alpha=0.4,       # 薄く重ねるための透明度 (0.0〜1.0)
+                vmin=0.0, 
+                vmax=1.0,        # コストの最大値を1.0として正規化表示
+                zorder=zorder
+            )
+
+        # 既存の障害物（ソリッドな灰色）をその上に重ねて描画
         # render circle obstacles
         for circle_obs in self.circle_obs_list:
             ax.add_patch(
                 plt.Circle(
-                    circle_obs.center, circle_obs.radius, color="gray", zorder=zorder
+                    circle_obs.center, circle_obs.radius, color="gray", zorder=zorder + 1
                 )
             )
 
@@ -227,9 +310,10 @@ class ObstacleMap:
                     rectangle_obs.width,
                     rectangle_obs.height,
                     color="gray",
-                    zorder=zorder,
+                    zorder=zorder + 1,
                 )
             )
+
 
 
 def generate_random_obstacles(

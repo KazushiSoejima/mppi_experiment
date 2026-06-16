@@ -14,7 +14,7 @@ def main(save_mode: bool = False):
 
     # solver
     solver = MPPI(
-        horizon=30,
+        horizon=60,
         num_samples=3000,
         dim_state=3,
         dim_control=2,
@@ -22,7 +22,7 @@ def main(save_mode: bool = False):
         cost_func=env.cost_function,
         u_min=env.u_min,
         u_max=env.u_max,
-        sigmas=torch.tensor([0.5, 0.5]),
+        sigmas=torch.tensor([0.2, 1.5]),
         lambda_="ESSPS",
     )
 
@@ -68,6 +68,7 @@ def main(save_mode: bool = False):
 
     average_time = total_time / step_count
     print("average solve time: {:.3f} ms".format(average_time * 1000))
+    print("total time: {:.3f}s".format(total_time))
     env.close()  # close window and save video if save_mode is True
 
 
